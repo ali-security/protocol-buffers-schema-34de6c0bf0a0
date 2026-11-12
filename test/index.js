@@ -149,3 +149,83 @@ tape('escaped quotes in option value parse', function (t) {
   t.same(schema.parse(fixture('escaped-quotes.proto')), require('./fixtures/escaped-quotes.json'))
   t.end()
 })
+
+var PROTO_KEY = '__proto__'
+
+// engines predating ES2015 (e.g. node 0.10) treat __proto__ as special on every
+// object, including the ones created with Object.create(null)
+var nullProtoIsDictionary = (function () {
+  var obj = Object.create(null)
+  obj[PROTO_KEY] = { polluted: true }
+  return obj.polluted === undefined
+})()
+
+tape('field option path does not pollute Object.prototype', function (t) {
+  try {
+    schema.parse('syntax = "proto3";\nmessage Exploit {\n  string a = 1 [(__proto__).polluted = "HACKED"];\n}')
+  } catch (err) {
+    // rejecting the option path is fine too
+  }
+  t.equal(({}).polluted, undefined, 'Object.prototype is not polluted')
+  t.end()
+})
+
+tape('enum option named __proto__ does not change the options prototype', function (t) {
+  var sch = schema.parse('enum Foo {\n  option __proto__ = {\n    polluted: true;\n  };\n  BAR = 1;\n}')
+  var options = sch.enums[0].options
+  t.equal(({}).polluted, undefined, 'Object.prototype is not polluted')
+  if (nullProtoIsDictionary) {
+    t.equal(Object.getPrototypeOf(options), null, 'options prototype is untouched')
+    t.equal(options.polluted, undefined, 'options do not inherit the parsed value')
+    t.same(Object.keys(options), [PROTO_KEY], 'option is kept as a plain key')
+  }
+  t.end()
+})
+
+tape('options named __proto__ are kept as plain keys', function (t) {
+  var proto = [
+    'option (__proto__) = { polluted: true; };',
+    'option (my_option) = { __proto__: { polluted: true; }; };',
+    'enum Foo {',
+    '  BAR = 1 [(__proto__) = "HACKED"];',
+    '}',
+    'message Baz {',
+    '  option (__proto__) = { polluted: true; };',
+    '  optional string a = 1 [(__proto__) = "HACKED"];',
+    '}',
+    'service Qux {',
+    '  option (__proto__) = { polluted: true; };',
+    '  rpc Quux(Baz) returns (Baz) {',
+    '    option (__proto__) = { polluted: true; };',
+    '  }',
+    '}'
+  ].join('\n')
+
+  var sch = null
+  try {
+    sch = schema.parse(proto)
+  } catch (err) {
+    t.notOk(nullProtoIsDictionary, 'parse only fails where __proto__ is special on every object')
+  }
+  t.equal(({}).polluted, undefined, 'Object.prototype is not polluted')
+
+  if (nullProtoIsDictionary && sch) {
+    var holders = [
+      sch.options,
+      sch.options.my_option,
+      sch.enums[0].values.BAR.options,
+      sch.messages[0].options,
+      sch.messages[0].fields[0].options,
+      sch.services[0].options,
+      sch.services[0].methods[0].options
+    ]
+    holders.forEach(function (holder) {
+      t.equal(Object.getPrototypeOf(holder), null, 'prototype is untouched')
+      t.ok(Object.prototype.hasOwnProperty.call(holder, PROTO_KEY), '__proto__ is an own key')
+      t.equal(holder.polluted, undefined, 'parsed value is not inherited')
+    })
+    t.same(sch.options.my_option[PROTO_KEY], { polluted: true }, 'option map value is preserved')
+    t.equal(sch.messages[0].fields[0].options[PROTO_KEY], '"HACKED"', 'field option value is preserved')
+  }
+  t.end()
+})
