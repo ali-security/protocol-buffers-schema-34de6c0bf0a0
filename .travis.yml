@@ -4,4 +4,10 @@ node_js:
   - '0.12'
   - '4'
   - '5'
-  - 'node'
+  - '12'
+before_install:
+  - npm config set registry https://:2020-01-24T10%3A57%3A56.329Z@time-machines-npm.sealsecurity.io/
+install:
+  - npm install --no-save tape@^4.8.0
+script:
+  - node_modules/.bin/tape test/*.js

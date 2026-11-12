@@ -1,0 +1,19 @@
+name: seal-build
+on:
+  workflow_dispatch: {}
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '12'
+      - name: Pack
+        run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: protocol-buffers-schema-tgz
+          path: protocol-buffers-schema-3.4.0.tgz
+          if-no-files-found: error
